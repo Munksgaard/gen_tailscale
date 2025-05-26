@@ -22,7 +22,6 @@ defmodule GenTailscale.MixProject do
        git: "https://github.com/Munksgaard/libtailscale.git",
        branch: "elixir-dwim",
        subdir: "elixir"}
-      # {:mix_erlang_tasks, "0.1.0"},
     ]
   end
 end

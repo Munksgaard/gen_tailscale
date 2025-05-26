@@ -460,20 +460,7 @@ connect(#{family := Fam} = SockAddr, Opts, Timeout)
     %% ?DBG([{fam, Fam}, {sa, SockAddr}, {opts, Opts}, {timeout, Timeout}]),
     SockAddr2 = inet:ensure_sockaddr(SockAddr),
     %% ?DBG([{sa2, SockAddr2}]),
-    case inet:gen_tailscale_module(Opts) of
-        {?MODULE, Opts2} ->
-            Timer = inet:start_timer(Timeout),
-            Res = (catch connect2(SockAddr2, Opts2, Timer)),
-            _ = inet:stop_timer(Timer),
-            case Res of
-                {ok, S}          -> {ok,S};
-                {error,  einval} -> exit(badarg);
-                {'EXIT', Reason} -> exit(Reason);
-                Error            -> Error
-            end;
-        {GenTcpMod, Opts3} ->
-            GenTcpMod:connect(SockAddr2, Opts3, Timeout)
-    end.
+    gen_tailscale_socket:connect(SockAddr2, Opts, Timeout).
 
 
 -doc """
@@ -571,35 +558,7 @@ Defaults to `infinity`.
       Reason  :: timeout | inet:posix().
 
 connect(Address, Port, Opts0, Timeout) ->
-    gen_tailscale_socket:connect(Address, Port, Opts, Timeout).
-
-connect1(Address, Port, Opts0, Timer) ->
-    {Mod, Opts} = inet:tcp_module(Opts0, Address),
-    case Mod:getaddrs(Address, Timer) of
-	{ok,IPs} ->
-	    case Mod:getserv(Port) of
-		{ok,TP} -> try_connect(IPs,TP,Opts,Timer,Mod,{error,einval});
-		Error -> Error
-	    end;
-	Error -> Error
-    end.
-
-connect2(SockAddr, Opts0, Timer) ->
-    {Mod, Opts} = inet:tcp_module(Opts0, SockAddr),
-    Mod:connect(SockAddr, Opts, inet:timeout(Timer)).
-
-try_connect([IP|IPs], Port, Opts, Timer, Mod, _) ->
-    Time = inet:timeout(Timer),
-    case Mod:connect(IP, Port, Opts, Time) of
-	{ok,S} -> {ok,S};
-	{error,einval} -> {error, einval};
-	{error,timeout} -> {error,timeout};
-	Err1 -> try_connect(IPs, Port, Opts, Timer, Mod, Err1)
-    end;
-try_connect([], _Port, _Opts, _Timer, _Mod, Err) ->
-    Err.
-
-
+    gen_tailscale_socket:connect(Address, Port, Opts0, Timeout).
 
 %%
 %% Listen on a tcp port
@@ -905,14 +864,7 @@ send(S, Packet) when is_port(S) ->
       HttpPacket :: term().
 
 recv(?module_socket(GenTcpMod, _) = S, Length) when is_atom(GenTcpMod) ->
-    GenTcpMod:?FUNCTION_NAME(S, Length, infinity);
-recv(S, Length) when is_port(S) ->
-    case inet_db:lookup_socket(S) of
-	{ok, Mod} ->
-	    Mod:recv(S, Length);
-	Error ->
-	    Error
-    end.
+    GenTcpMod:?FUNCTION_NAME(S, Length, infinity).
 
 -doc """
 Receive a packet, from a socket in _passive mode_.
@@ -1012,4 +964,4 @@ controlling_process(S, NewOwner) ->
 %%
 -doc false.
 fdopen(Fd, Opts0) ->
-    gen_tailscale_socket:fdopen(Fd, Opts).
+    gen_tailscale_socket:fdopen(Fd, Opts0).

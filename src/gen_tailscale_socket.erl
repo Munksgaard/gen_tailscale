@@ -1907,15 +1907,15 @@ handle_event({call, From}, {bind, BindAddr} = _BIND, _State, {P, _D}) ->
 handle_event(
   {call, From}, {listen, Backlog} = _LISTEN,
   _State, {#params{socket = Socket} = P, D}) ->
-    %% ?DBG({handle_event, call, _LISTEN, _State}),
+    ?DBG({handle_event, call, _LISTEN, _State, Socket, Backlog}),
 
     %% Create a new Tailscale server object.
-    Ts = libtailscale:new(),
-    ok = libtailscale:set_ephemeral(Ts, 1),
+    Ts = 'Elixir.Libtailscale':new(),
+    ok = 'Elixir.Libtailscale':set_ephemeral(Ts, 1),
 
     Result =
         %% case socket:listen(Socket, Backlog) of
-        case libtailscale:listen(Ts, <<"tcp">>, <<":1999">>) of
+        case 'Elixir.Libtailscale':listen(Ts, <<"tcp">>, <<":1999">>) of
             {ok, ListenerFd} -> socket:open(ListenerFd);
             %% ok -> {ok, Socket};
             {error, _} = Error -> Error

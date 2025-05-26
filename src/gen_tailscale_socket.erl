@@ -59,8 +59,8 @@
 
 -define(RECV_BUFFER_SIZE_DEFAULT, 8192).
 
--define(DBG(T),
-	erlang:display({{self(), ?MODULE, ?LINE, ?FUNCTION_NAME}, T})).
+%% -define(DBG(T),
+%% 	erlang:display({{self(), ?MODULE, ?LINE, ?FUNCTION_NAME}, T})).
 
 %% -define(P(F),    ?P(F, [])).
 %% -define(P(F, A), d("~w:~w(~w) -> " ++ F, [?MODULE, ?FUNCTION_NAME, ?LINE | A])).
@@ -379,22 +379,22 @@ default_active_true(Opts) ->
 %% -------------------------------------------------------------------------
 
 listen(Port, Opts0) ->
-    ?DBG([{port, Port}, {opts0, Opts0}]),
+    %% ?DBG([{port, Port}, {opts0, Opts0}]),
     Opts1              = internalize_setopts(Opts0),
-    ?DBG([{opts1, Opts1}]),
+    %% ?DBG([{opts1, Opts1}]),
     {Mod, Opts2}       = inet:tcp_module(Opts1),
-    ?DBG([{mod, Mod}, {opts2, Opts2}]),
+    %% ?DBG([{mod, Mod}, {opts2, Opts2}]),
     {StartOpts, Opts3} = split_start_opts(Opts2),
     {OpenOpts0, Opts4} = split_open_opts(Opts3),
-    ?DBG([{start_opts, StartOpts},
-          {open_opts0, OpenOpts0},
-          {opts4,      Opts4}]),
+    %% ?DBG([{start_opts, StartOpts},
+    %%       {open_opts0, OpenOpts0},
+    %%       {opts4,      Opts4}]),
     case Mod:getserv(Port) of
         {ok, TP} ->
-            ?DBG([{tp, TP}]),
+            %% ?DBG([{tp, TP}]),
             case inet:listen_options([{port, TP} | Opts4], Mod) of
                 {error, badarg} ->
-                    ?DBG(badarg),
+                    %% ?DBG(badarg),
                     exit(badarg);
                 {ok,
                  #listen_opts{fd      = Fd,
@@ -404,12 +404,12 @@ listen(Port, Opts0) ->
                               backlog = Backlog}} ->
                     %%
                     Domain    = domain(Mod),
-                    ?DBG([{domain, Domain}, {bind_ip, BindAddr},
-                          {listen_opts, ListenOpts}, {backlog, Backlog}]),
+                    %% ?DBG([{domain, Domain}, {bind_ip, BindAddr},
+                    %%       {listen_opts, ListenOpts}, {backlog, Backlog}]),
                     BindSockaddr  = bind_addr(Domain, BindAddr, BindPort),
-                    ?DBG([{bind_sock_addr, BindSockaddr}]),
+                    %% ?DBG([{bind_sock_addr, BindSockaddr}]),
                     OpenOpts = open_opts(OpenOpts0, open_opts(Fd)),
-                    ?DBG([{open_opts, OpenOpts}]),
+                    %% ?DBG([{open_opts, OpenOpts}]),
                     listen_open(
                       Domain, ListenOpts, StartOpts, OpenOpts,
                       Backlog, BindSockaddr)
@@ -1905,9 +1905,10 @@ handle_event({call, From}, {bind, BindAddr} = _BIND, _State, {P, _D}) ->
 %% It also reflects the API behaviour (gen_tailscale:listen(...) -> {ok, Socket})
 
 handle_event(
-  {call, From}, {listen, Backlog} = _LISTEN,
-  _State, {#params{socket = Socket} = P, D}) ->
-    ?DBG({handle_event, call, _LISTEN, _State, Socket, Backlog}),
+  {call, From}, {listen, _Backlog} = _LISTEN,
+  %% TODO: Remove socket here
+  _State, {#params{socket = _Socket} = P, D}) ->
+    %% ?DBG({handle_event, call, _LISTEN, _State, Socket, Backlog}),
 
     %% Create a new Tailscale server object.
     Ts = 'Elixir.Libtailscale':new(),
@@ -2273,8 +2274,6 @@ handle_accept(P, D, From, _ListenSocket, _Timeout, {error, _Reason} = Error) ->
 
 handle_accept_success(P, D, From, ListenSocket, CMsg) ->
     %% ?DBG([{acc_socket, AccSocket}]),
-
-    ?DBG(CMsg),
 
     <<X:32/integer-native>> = maps:get(data, hd(maps:get(ctrl, CMsg))),
 

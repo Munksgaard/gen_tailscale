@@ -398,7 +398,7 @@ As returned by [`accept/1,2`](`accept/1`) and [`connect/3,4`](`connect/3`).
               socket/0, pktoptions_value/0]).
 
 
--define(DBG(T), erlang:display({{self(), ?MODULE, ?LINE, ?FUNCTION_NAME}, T})).
+%% -define(DBG(T), erlang:display({{self(), ?MODULE, ?LINE, ?FUNCTION_NAME}, T})).
 
 
 %%
@@ -625,7 +625,7 @@ The returned socket `ListenSocket` should be used when calling
       Reason :: system_limit | inet:posix().
 
 listen(Port, Opts0) ->
-    ?DBG([{port, Port}, {opts0, Opts0}]),
+    %% ?DBG([{port, Port}, {opts0, Opts0}]),
     gen_tailscale_socket:listen(Port, Opts0).
 
     %% case inet:gen_tcp_module(Opts0) of

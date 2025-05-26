@@ -19,9 +19,7 @@ defmodule GenTailscale.MixProject do
   defp deps do
     [
       {:libtailscale,
-       git: "https://github.com/Munksgaard/libtailscale.git",
-       branch: "elixir-dwim",
-       subdir: "elixir"}
+       git: "https://github.com/Munksgaard/libtailscale.git", branch: "elixir", subdir: "elixir"}
     ]
   end
 end

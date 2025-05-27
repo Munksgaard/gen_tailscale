@@ -1074,13 +1074,13 @@ set_tailscale_opts(Ts, [{hostname, Hostname} | RestOpts]) ->
     ok = 'Elixir.Libtailscale':set_hostname(Ts, Hostname),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{dir, Dir} | RestOpts]) ->
-    ok = 'Elixir.Libtailscale':set_dir(Ts, list_to_binary(Dir)),
+    ok = 'Elixir.Libtailscale':set_dir(Ts, Dir),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{authkey, Authkey} | RestOpts]) ->
-    ok = 'Elixir.Libtailscale':set_authkey(Ts, list_to_binary(Authkey)),
+    ok = 'Elixir.Libtailscale':set_authkey(Ts, Authkey),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{control_url, ControlUrl} | RestOpts]) ->
-    ok = 'Elixir.Libtailscale':set_control_url(Ts, list_to_binary(ControlUrl)),
+    ok = 'Elixir.Libtailscale':set_control_url(Ts, ControlUrl),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{logfd, Logfd} | RestOpts]) when is_integer(Logfd)->
     ok = 'Elixir.Libtailscale':set_logfd(Ts, Logfd),

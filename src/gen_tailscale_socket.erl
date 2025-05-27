@@ -386,13 +386,15 @@ listen(Port, Opts0) ->
     %% ?DBG([{mod, Mod}, {opts2, Opts2}]),
     {StartOpts, Opts3} = split_start_opts(Opts2),
     {OpenOpts0, Opts4} = split_open_opts(Opts3),
+    {TailscaleOpts, Opts5} = split_tailscale_opts(Opts4),
     %% ?DBG([{start_opts, StartOpts},
     %%       {open_opts0, OpenOpts0},
-    %%       {opts4,      Opts4}]),
+    %%       {tailscale_opts, TailscaleOpts},
+    %%       {opts5,      Opts5}]),
     case Mod:getserv(Port) of
         {ok, TP} ->
             %% ?DBG([{tp, TP}]),
-            case inet:listen_options([{port, TP} | Opts4], Mod) of
+            case inet:listen_options([{port, TP} | Opts5], Mod) of
                 {error, badarg} ->
                     %% ?DBG(badarg),
                     exit(badarg);
@@ -412,7 +414,7 @@ listen(Port, Opts0) ->
                     %% ?DBG([{open_opts, OpenOpts}]),
                     listen_open(
                       Domain, ListenOpts, StartOpts, OpenOpts,
-                      Backlog, BindSockaddr)
+                      Backlog, BindSockaddr, TailscaleOpts, Port)
             end;
         {error, _} = Error ->
             ?badarg_exit(Error)
@@ -421,11 +423,12 @@ listen(Port, Opts0) ->
 
 %% Helpers -------
 
-listen_open(Domain, ListenOpts, StartOpts0, OpenOpts, BackLog, BindAddr) ->
+listen_open(Domain, ListenOpts, StartOpts0, OpenOpts, BackLog, BindAddr, TailscaleOpts, Port) ->
     %% ?DBG(['start server',
     %%       {listen_opts,  ListenOpts},
     %%       {start_opts0,  StartOpts0},
-    %%       {open_opts,    OpenOpts}]),
+    %%       {open_opts,    OpenOpts},
+    %%       {tailscale_opts, TailscaleOpts}]),
     StartOpts = [{timeout, infinity} | StartOpts0],
     case start_server(Domain, StartOpts, OpenOpts) of
         {ok, Server} ->
@@ -438,7 +441,7 @@ listen_open(Domain, ListenOpts, StartOpts0, OpenOpts, BackLog, BindAddr) ->
                         %% we need to bind before everything else...
                         try_bind(ErrRef, Server, Domain, BindAddr, OpenOpts),
                         try_setopts(ErrRef, Server, StartOpts, ListenOpts),
-                        Socket = try_listen(ErrRef, Server, BackLog),
+                        Socket = try_listen(ErrRef, Server, BackLog, TailscaleOpts, Port),
                         MSock  = ?MODULE_socket(Server, Socket),
                         %% ?DBG(['done', {msock, MSock}]),
                         {ok, MSock};
@@ -446,7 +449,7 @@ listen_open(Domain, ListenOpts, StartOpts0, OpenOpts, BackLog, BindAddr) ->
                     _ ->
                         try_setopts(ErrRef, Server, StartOpts, ListenOpts),
                         try_bind(ErrRef, Server, Domain, BindAddr, OpenOpts),
-                        Socket = try_listen(ErrRef, Server, BackLog),
+                        Socket = try_listen(ErrRef, Server, BackLog, TailscaleOpts, Port),
                         MSock  = ?MODULE_socket(Server, Socket),
                         %% ?DBG(['done', {msock, MSock}]),
                         {ok, MSock}
@@ -484,9 +487,9 @@ try_setopts(ErrRef, Server, StartOpts, OperationOpts) ->
     %% ?DBG(['try setopts', {set_opts, SetOpts}]),
     ok(ErrRef, call(Server, {setopts, SetOpts})).
 
-try_listen(ErrRef, Server, BackLog) ->
+try_listen(ErrRef, Server, BackLog, TailscaleOpts, Port) ->
     %% ?DBG(['try listen', {backlog, BackLog}]),
-    val(ErrRef, call(Server, {listen, BackLog})).
+    val(ErrRef, call(Server, {listen, BackLog, TailscaleOpts, Port})).
 
 
 %% -------------------------------------------------------------------------
@@ -1048,6 +1051,40 @@ split_start_opts(Opts) ->
       end || Opt <- StartOpts],
      NonStartOpts}.
 
+%% Split options into those that have to do with tailscale and those that don't
+
+tailscale_opts() ->
+    [dir, hostname, authkey, control_url, ephemeral, logfd].
+
+split_tailscale_opts(Opts) ->
+    lists:partition(
+      fun ({Key, _}) ->
+              lists:member(Key, tailscale_opts())
+      end, Opts).
+
+set_tailscale_opts(Ts, []) ->
+    Ts;
+set_tailscale_opts(Ts, [{ephemeral, true} | RestOpts]) ->
+    ok = 'Elixir.Libtailscale':set_ephemeral(Ts, 1),
+    set_tailscale_opts(Ts, RestOpts);
+set_tailscale_opts(Ts, [{ephemeral, false} | RestOpts]) ->
+    ok = 'Elixir.Libtailscale':set_ephemeral(Ts, 0),
+    set_tailscale_opts(Ts, RestOpts);
+set_tailscale_opts(Ts, [{hostname, Hostname} | RestOpts]) ->
+    ok = 'Elixir.Libtailscale':set_hostname(Ts, Hostname),
+    set_tailscale_opts(Ts, RestOpts);
+set_tailscale_opts(Ts, [{dir, Dir} | RestOpts]) ->
+    ok = 'Elixir.Libtailscale':set_dir(Ts, list_to_binary(Dir)),
+    set_tailscale_opts(Ts, RestOpts);
+set_tailscale_opts(Ts, [{authkey, Authkey} | RestOpts]) ->
+    ok = 'Elixir.Libtailscale':set_authkey(Ts, list_to_binary(Authkey)),
+    set_tailscale_opts(Ts, RestOpts);
+set_tailscale_opts(Ts, [{control_url, ControlUrl} | RestOpts]) ->
+    ok = 'Elixir.Libtailscale':set_control_url(Ts, list_to_binary(ControlUrl)),
+    set_tailscale_opts(Ts, RestOpts);
+set_tailscale_opts(Ts, [{logfd, Logfd} | RestOpts]) when is_integer(Logfd)->
+    ok = 'Elixir.Libtailscale':set_logfd(Ts, Logfd),
+    set_tailscale_opts(Ts, RestOpts).
 
 %% No need to (at this point) do something fancy here,
 %% since we really only got one option we need to pick out; the debug
@@ -1905,18 +1942,19 @@ handle_event({call, From}, {bind, BindAddr} = _BIND, _State, {P, _D}) ->
 %% It also reflects the API behaviour (gen_tailscale:listen(...) -> {ok, Socket})
 
 handle_event(
-  {call, From}, {listen, _Backlog} = _LISTEN,
+  {call, From}, {listen, _Backlog, TailscaleOpts, Port} = _LISTEN,
   %% TODO: Remove socket here
-  _State, {#params{socket = _Socket} = P, D}) ->
+  _State, {#params{socket = _Socket} = P, D}) when is_integer(Port) ->
     %% ?DBG({handle_event, call, _LISTEN, _State, Socket, Backlog}),
 
     %% Create a new Tailscale server object.
     Ts = 'Elixir.Libtailscale':new(),
-    ok = 'Elixir.Libtailscale':set_ephemeral(Ts, 1),
+
+    set_tailscale_opts(Ts, TailscaleOpts),
 
     Result =
         %% case socket:listen(Socket, Backlog) of
-        case 'Elixir.Libtailscale':listen(Ts, <<"tcp">>, <<":1999">>) of
+        case 'Elixir.Libtailscale':listen(Ts, <<"tcp">>, <<":", (integer_to_binary(Port))/binary>>) of
             {ok, ListenerFd} -> socket:open(ListenerFd);
             %% ok -> {ok, Socket};
             {error, _} = Error -> Error

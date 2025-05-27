@@ -1,4 +1,6 @@
-{:ok, lsock} = :gen_tailscale.listen(1999, active: false)
+{:ok, lsock} =
+  :gen_tailscale.listen(2000, active: false, hostname: "gen_tailscale_test", ephemeral: true)
+
 {:ok, sock} = :gen_tailscale.accept(lsock)
 {:ok, s} = :gen_tailscale.recv(sock, 0)
 :ok = :gen_tailscale.send(sock, s)

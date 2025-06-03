@@ -2313,11 +2313,9 @@ handle_accept(P, D, From, _ListenSocket, _Timeout, {error, _Reason} = Error) ->
 handle_accept_success(P, D, From, ListenSocket, CMsg) ->
     %% ?DBG([{acc_socket, AccSocket}]),
 
-    <<X:32/integer-native>> = maps:get(data, hd(maps:get(ctrl, CMsg))),
+    <<SocketFd:32/integer-native>> = maps:get(data, hd(maps:get(ctrl, CMsg))),
 
-    %%     <<x::integer-native-32>> = hd(CMsg.ctrl).data
-
-    {ok, AccSocket} = socket:open(X),
+    {ok, AccSocket} = socket:open(SocketFd),
 
     ok = socket:setopt(AccSocket, {otp,iow}, true),
     ok = socket:setopt(AccSocket, {otp,meta}, meta(D)),

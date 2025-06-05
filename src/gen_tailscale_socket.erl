@@ -1749,6 +1749,15 @@ handle_event({call, From}, get_server_opts, _State, {P, D}) ->
     {keep_state_and_data,
      [{reply, From, {ok, {ServerData, P}}}]};
 
+%% get tailscale handle
+handle_event({call, From}, get_ts_handle, _State, {P, _D}) ->
+    case P#params.ts_handle of
+        undefined ->
+            {keep_state_and_data, [{reply, From, {error, no_ts_handle}}]};
+        TS when is_integer(TS) ->
+            {keep_state_and_data, [{reply, From, {ok, TS}}]}
+    end;
+
 
 %% How to handle counter wrap messages,
 %% i.e how to keep counter wraps in sync with counter values
@@ -3451,66 +3460,17 @@ error_report(Report) ->
 %% -------------------------------------------------------------------------
 %% Loopback server functionality
 
-start_loopback(Options) ->
-    try
-        % Create new Tailscale instance
-        TS = libtailscale:new(),
-        
-        % Apply options
-        case apply_loopback_options(TS, Options) of
-            ok ->
-                % Bring up the Tailscale connection
-                case libtailscale:up(TS) of
-                    ok ->
-                        % Start the loopback server
-                        case libtailscale:loopback(TS) of
-                            {ok, {Address, ProxyCred, LocalApiCred}} ->
-                                {ok, {binary_to_list(Address), 
-                                      binary_to_list(ProxyCred), 
-                                      binary_to_list(LocalApiCred)}};
-                            {error, Reason} ->
-                                libtailscale:close(TS),
-                                {error, Reason}
-                        end;
-                    {error, Reason} ->
-                        libtailscale:close(TS),
-                        {error, Reason}
-                end;
-            {error, Reason} ->
-                libtailscale:close(TS),
-                {error, Reason}
-        end
-    catch
-        error:CatchReason ->
-            {error, CatchReason};
-        throw:CatchReason ->
-            {error, CatchReason};
-        exit:CatchReason ->
-            {error, CatchReason}
+start_loopback(?MODULE_socket(Server, _Socket)) ->
+    case gen_statem:call(Server, get_ts_handle) of
+        {ok, TS} when is_integer(TS) ->
+            %% Start the loopback server using the existing Tailscale server
+            case 'Elixir.Libtailscale':loopback(TS) of
+                {ok, {Address, ProxyCred, LocalApiCred}} ->
+                    {ok, {Address,
+                          binary_to_list(ProxyCred),
+                          binary_to_list(LocalApiCred)}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, no_ts_handle} = Error -> Error
     end.
-
-apply_loopback_options(_TS, []) ->
-    ok;
-apply_loopback_options(TS, [{hostname, Hostname} | Rest]) when is_list(Hostname) ->
-    case libtailscale:set_hostname(TS, list_to_binary(Hostname)) of
-        ok -> apply_loopback_options(TS, Rest);
-        Error -> Error
-    end;
-apply_loopback_options(TS, [{hostname, Hostname} | Rest]) when is_binary(Hostname) ->
-    case libtailscale:set_hostname(TS, Hostname) of
-        ok -> apply_loopback_options(TS, Rest);
-        Error -> Error
-    end;
-apply_loopback_options(TS, [{ephemeral, true} | Rest]) ->
-    case libtailscale:set_ephemeral(TS, 1) of
-        ok -> apply_loopback_options(TS, Rest);
-        Error -> Error
-    end;
-apply_loopback_options(TS, [{ephemeral, false} | Rest]) ->
-    case libtailscale:set_ephemeral(TS, 0) of
-        ok -> apply_loopback_options(TS, Rest);
-        Error -> Error
-    end;
-apply_loopback_options(TS, [_InvalidOption | Rest]) ->
-    % Ignore invalid options and continue
-    apply_loopback_options(TS, Rest).

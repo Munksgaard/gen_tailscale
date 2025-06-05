@@ -38,7 +38,7 @@
          setopts/2, getopts/2,
          sockname/1, peername/1,
          socknames/1,
-         getstat/2
+         getstat/2, getremoteaddr/1
         ]).
 
 %% Utility
@@ -494,17 +494,29 @@ try_listen(ErrRef, Server, BackLog, TailscaleOpts, Port) ->
 
 %% -------------------------------------------------------------------------
 
+-record(params,
+        {socket     :: undefined | socket:socket(),
+         owner      :: pid(),
+         owner_mon  :: reference(),
+         ts_handle  :: undefined | integer(), % From Elixir.Libtailscale:new()
+         nif_listener_fd :: undefined | integer(),  % From Elixir.Libtailscale:listen() - for listening sockets
+         nif_conn_fd :: undefined | integer() % The native connection FD - for accepted/dialed sockets
+        }).
+
 accept(?MODULE_socket(ListenServer, ListenSocket), Timeout) ->
     %%
     Timer = inet:start_timer(Timeout),
     ErrRef = make_ref(),
     try
-        #{start_opts := StartOpts} = ServerData =
+        {#{start_opts := StartOpts} = ServerData,
+         #params{nif_listener_fd = ListenerFd, ts_handle = TsHandle}} =
             val(ErrRef, call(ListenServer, get_server_opts)),
+        %% ?DBG([server_data, ServerData]),
+        %% ?DBG([nif_listener_fd, ListenerFd, ts_handle, TsHandle]),
         Server =
             val(ErrRef,
                 start_server(
-                 ServerData, [{timeout, inet:timeout(Timer)} | StartOpts])),
+                 ServerData, [{timeout, inet:timeout(Timer)} | StartOpts], TsHandle, ListenerFd)),
         Socket =
             val({ErrRef, Server},
                 call(Server, {accept, ListenSocket, inet:timeout(Timer)})),
@@ -762,6 +774,10 @@ peername(?MODULE_socket(_Server, Socket)) ->
 getstat(?MODULE_socket(Server, _Socket), What) when is_list(What) ->
     call(Server, {getstat, What}).
 
+%% -------------------------------------------------------------------------
+
+getremoteaddr(?MODULE_socket(Server, _Socket)) ->
+    call(Server, getremoteaddr).
 
 %% -------------------------------------------------------------------------
 
@@ -1470,10 +1486,10 @@ start_server(Domain, StartOpts, OpenOpts) ->
     end.
 
 %% Start for accept - have no socket yet
-start_server(ServerData, StartOpts) ->
-    %% ?DBG([{server_data, ServerData}, {start_opts, StartOpts}]),
+start_server(ServerData, StartOpts, TsHandle, ListenerFd) ->
+    %% ?DBG([{server_data, ServerData}, {statr_opts, StartOpts}]),
     Owner = self(),
-    Arg = {prepare, ServerData, Owner},
+    Arg = {prepare, ServerData, Owner, TsHandle, ListenerFd},
     case gen_statem:start(?MODULE, Arg, StartOpts) of
         {ok, Server} ->
 	    %% ?DBG([{server, Server}]),
@@ -1562,11 +1578,6 @@ callback_mode() -> handle_event_function.
 
 
 
--record(params,
-        {socket     :: undefined | socket:socket(),
-         owner      :: pid(),
-         owner_mon  :: reference()}).
-
 server_vars() ->
     #{counters := #{num_cnt_bits := NumCntBits}} = socket:info(),
     %%
@@ -1599,7 +1610,7 @@ init({open, Domain, ExtraOpts, Owner}) ->
 	    %% ?DBG(['open failed', {reason, Reason}]),
 	    {stop, {shutdown, Reason}}
     end;
-init({prepare, D, Owner}) ->
+init({prepare, D, Owner, TsHandle, ListenerFd}) ->
     %% Accept
     %%
     %% ?DBG([{init, prepare}, {d, D}, {owner, Owner}]),
@@ -1607,7 +1618,9 @@ init({prepare, D, Owner}) ->
     OwnerMon = monitor(process, Owner),
     P = #params{
            owner     = Owner,
-           owner_mon = OwnerMon},
+           owner_mon = OwnerMon,
+           ts_handle = TsHandle,
+           nif_listener_fd = ListenerFd},
     {ok, accept, {P, maps:merge(D, server_vars())}};
 init(Arg) ->
     error_report([{badarg, {?MODULE, init, [Arg]}}]),
@@ -1730,10 +1743,10 @@ handle_event(Type, Content, #accept{} = State, P_D) ->
 %% ------- #params.socket is defined from here on ---------------------------
 
 
-handle_event({call, From}, get_server_opts, _State, {_P, D}) ->
+handle_event({call, From}, get_server_opts, _State, {P, D}) ->
     ServerData = maps:with(maps:keys(server_opts()), D),
     {keep_state_and_data,
-     [{reply, From, {ok, ServerData}}]};
+     [{reply, From, {ok, {ServerData, P}}}]};
 
 
 %% How to handle counter wrap messages,
@@ -1952,15 +1965,15 @@ handle_event(
 
     set_tailscale_opts(Ts, TailscaleOpts),
 
-    Result =
+    {Result, PNew} =
         %% case socket:listen(Socket, Backlog) of
         case 'Elixir.Libtailscale':listen(Ts, <<"tcp">>, <<":", (integer_to_binary(Port))/binary>>) of
-            {ok, ListenerFd} -> socket:open(ListenerFd);
+            {ok, ListenerFd} -> {socket:open(ListenerFd), P#params{ts_handle = Ts, nif_listener_fd = ListenerFd}};
             %% ok -> {ok, Socket};
-            {error, _} = Error -> Error
+            {error, _} = Error -> {Error, P}
         end,
     %% ?DBG({listen_result, Result}),
-    {keep_state, {P, D#{type => listen}},
+    {keep_state, {PNew, D#{type => listen}},
      [{reply, From, Result}]};
 
 %% -------
@@ -2107,6 +2120,17 @@ handle_event(
 
 %% State: #recv{}
 %% -------
+
+%% get remote
+handle_event({call, From}, getremoteaddr, _State, {P, _D}) ->
+    %% ?DBG([p, P]),
+    {keep_state_and_data,
+     {reply,
+      From,
+      'Elixir.Libtailscale':getremoteaddr(
+        P#params.ts_handle,
+        P#params.nif_listener_fd,
+        P#params.nif_conn_fd)}};
 
 %% Catch-all
 handle_event(Type, Content, State, P_D) ->
@@ -2322,7 +2346,7 @@ handle_accept_success(P, D, From, ListenSocket, CMsg) ->
     [ok = socket_copy_opt(ListenSocket, Opt, AccSocket)
      || Opt <- socket_inherit_opts()],
     handle_connected(
-      P#params{socket = AccSocket}, D#{type => accept},
+      P#params{socket = AccSocket, nif_conn_fd = SocketFd}, D#{type => accept},
       [{{timeout, accept}, cancel},
        {reply, From, {ok, AccSocket}}]).
 

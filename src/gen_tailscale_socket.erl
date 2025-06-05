@@ -501,7 +501,10 @@ try_listen(ErrRef, Server, BackLog, TailscaleOpts, Port) ->
          owner_mon  :: reference(),
          ts_handle  :: undefined | integer(), % From Elixir.Libtailscale:new()
          nif_listener_fd :: undefined | integer(),  % From Elixir.Libtailscale:listen() - for listening sockets
-         nif_conn_fd :: undefined | integer() % The native connection FD - for accepted/dialed sockets
+         nif_conn_fd :: undefined | integer(), % The native connection FD - for accepted/dialed sockets
+         loopback_address :: undefined | binary(), % Loopback server address
+         loopback_proxy_cred :: undefined | string(), % SOCKS5 proxy credential
+         loopback_local_api_cred :: undefined | string() % LocalAPI credential
         }).
 
 accept(?MODULE_socket(ListenServer, ListenSocket), Timeout) ->
@@ -1758,6 +1761,15 @@ handle_event({call, From}, get_ts_handle, _State, {P, _D}) ->
             {keep_state_and_data, [{reply, From, {ok, TS}}]}
     end;
 
+%% get loopback credentials
+handle_event({call, From}, get_loopback_creds, _State, {P, _D}) ->
+    case {P#params.loopback_address, P#params.loopback_proxy_cred, P#params.loopback_local_api_cred} of
+        {undefined, _, _} ->
+            {keep_state_and_data, [{reply, From, {error, no_loopback_server}}]};
+        {Addr, ProxyCred, LocalApiCred} when Addr =/= undefined, ProxyCred =/= undefined, LocalApiCred =/= undefined ->
+            {keep_state_and_data, [{reply, From, {ok, {Addr, ProxyCred, LocalApiCred}}}]}
+    end;
+
 
 %% How to handle counter wrap messages,
 %% i.e how to keep counter wraps in sync with counter values
@@ -1978,7 +1990,23 @@ handle_event(
     {Result, PNew} =
         %% case socket:listen(Socket, Backlog) of
         case 'Elixir.Libtailscale':listen(Ts, <<"tcp">>, <<":", (integer_to_binary(Port))/binary>>) of
-            {ok, ListenerFd} -> {socket:open(ListenerFd), P#params{ts_handle = Ts, nif_listener_fd = ListenerFd}};
+            {ok, ListenerFd} ->
+                % Start loopback server after successful listen
+                {LoopbackAddr, ProxyCred, LocalApiCred} =
+                    case 'Elixir.Libtailscale':loopback(Ts) of
+                        {ok, {Addr, PCred, LACred}} ->
+                            {Addr, binary_to_list(PCred), binary_to_list(LACred)};
+                        {error, _LoopbackError} ->
+                            % If loopback fails, continue without it but log the error
+                            % ?DBG({loopback_failed, _LoopbackError}),
+                            {undefined, undefined, undefined}
+                    end,
+                {socket:open(ListenerFd),
+                 P#params{ts_handle = Ts,
+                          nif_listener_fd = ListenerFd,
+                          loopback_address = LoopbackAddr,
+                          loopback_proxy_cred = ProxyCred,
+                          loopback_local_api_cred = LocalApiCred}};
             %% ok -> {ok, Socket};
             {error, _} = Error -> {Error, P}
         end,
@@ -3461,16 +3489,4 @@ error_report(Report) ->
 %% Loopback server functionality
 
 start_loopback(?MODULE_socket(Server, _Socket)) ->
-    case gen_statem:call(Server, get_ts_handle) of
-        {ok, TS} when is_integer(TS) ->
-            %% Start the loopback server using the existing Tailscale server
-            case 'Elixir.Libtailscale':loopback(TS) of
-                {ok, {Address, ProxyCred, LocalApiCred}} ->
-                    {ok, {Address,
-                          binary_to_list(ProxyCred),
-                          binary_to_list(LocalApiCred)}};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        {error, no_ts_handle} = Error -> Error
-    end.
+    gen_statem:call(Server, get_loopback_creds).

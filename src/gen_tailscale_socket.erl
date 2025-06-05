@@ -38,7 +38,8 @@
          setopts/2, getopts/2,
          sockname/1, peername/1,
          socknames/1,
-         getstat/2, getremoteaddr/1
+         getstat/2, getremoteaddr/1,
+         start_loopback/1
         ]).
 
 %% Utility
@@ -3445,3 +3446,71 @@ error_report(Report) ->
 %% d(F, A) ->
 %%     io:format("*** [~s] ~p ~w " ++ F ++ "~n",
 %%               [formated_timestamp(), self(), ?MODULE | A]).
+
+
+%% -------------------------------------------------------------------------
+%% Loopback server functionality
+
+start_loopback(Options) ->
+    try
+        % Create new Tailscale instance
+        TS = libtailscale:new(),
+        
+        % Apply options
+        case apply_loopback_options(TS, Options) of
+            ok ->
+                % Bring up the Tailscale connection
+                case libtailscale:up(TS) of
+                    ok ->
+                        % Start the loopback server
+                        case libtailscale:loopback(TS) of
+                            {ok, {Address, ProxyCred, LocalApiCred}} ->
+                                {ok, {binary_to_list(Address), 
+                                      binary_to_list(ProxyCred), 
+                                      binary_to_list(LocalApiCred)}};
+                            {error, Reason} ->
+                                libtailscale:close(TS),
+                                {error, Reason}
+                        end;
+                    {error, Reason} ->
+                        libtailscale:close(TS),
+                        {error, Reason}
+                end;
+            {error, Reason} ->
+                libtailscale:close(TS),
+                {error, Reason}
+        end
+    catch
+        error:CatchReason ->
+            {error, CatchReason};
+        throw:CatchReason ->
+            {error, CatchReason};
+        exit:CatchReason ->
+            {error, CatchReason}
+    end.
+
+apply_loopback_options(_TS, []) ->
+    ok;
+apply_loopback_options(TS, [{hostname, Hostname} | Rest]) when is_list(Hostname) ->
+    case libtailscale:set_hostname(TS, list_to_binary(Hostname)) of
+        ok -> apply_loopback_options(TS, Rest);
+        Error -> Error
+    end;
+apply_loopback_options(TS, [{hostname, Hostname} | Rest]) when is_binary(Hostname) ->
+    case libtailscale:set_hostname(TS, Hostname) of
+        ok -> apply_loopback_options(TS, Rest);
+        Error -> Error
+    end;
+apply_loopback_options(TS, [{ephemeral, true} | Rest]) ->
+    case libtailscale:set_ephemeral(TS, 1) of
+        ok -> apply_loopback_options(TS, Rest);
+        Error -> Error
+    end;
+apply_loopback_options(TS, [{ephemeral, false} | Rest]) ->
+    case libtailscale:set_ephemeral(TS, 0) of
+        ok -> apply_loopback_options(TS, Rest);
+        Error -> Error
+    end;
+apply_loopback_options(TS, [_InvalidOption | Rest]) ->
+    % Ignore invalid options and continue
+    apply_loopback_options(TS, Rest).

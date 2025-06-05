@@ -1,4 +1,4 @@
 %{
   "elixir_make": {:hex, :elixir_make, "0.9.0", "6484b3cd8c0cee58f09f05ecaf1a140a8c97670671a6a0e7ab4dc326c3109726", [:mix], [], "hexpm", "db23d4fd8b757462ad02f8aa73431a426fe6671c80b200d9710caf3d1dd0ffdb"},
-  "libtailscale": {:git, "https://github.com/Munksgaard/libtailscale.git", "7701159c63fb1a544642f6863db766c7b18570bf", [branch: "elixir", subdir: "elixir"]},
+  "libtailscale": {:git, "https://github.com/Munksgaard/libtailscale.git", "d9b554a4d5f249be03af9d48ef6bdd33c4f8012c", [branch: "elixir", subdir: "elixir"]},
 }

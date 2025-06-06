@@ -513,14 +513,14 @@ accept(?MODULE_socket(ListenServer, ListenSocket), Timeout) ->
     ErrRef = make_ref(),
     try
         {#{start_opts := StartOpts} = ServerData,
-         #params{nif_listener_fd = ListenerFd, ts_handle = TsHandle}} =
+         #params{nif_listener_fd = ListenerFd, ts_handle = TsHandle, loopback_address = LoopbackAddr, loopback_proxy_cred = LoopbackProxyCred, loopback_local_api_cred = LoopbackLocalApiCred}} =
             val(ErrRef, call(ListenServer, get_server_opts)),
         %% ?DBG([server_data, ServerData]),
         %% ?DBG([nif_listener_fd, ListenerFd, ts_handle, TsHandle]),
         Server =
             val(ErrRef,
                 start_server(
-                 ServerData, [{timeout, inet:timeout(Timer)} | StartOpts], TsHandle, ListenerFd)),
+                 ServerData, [{timeout, inet:timeout(Timer)} | StartOpts], TsHandle, ListenerFd, LoopbackAddr, LoopbackProxyCred, LoopbackLocalApiCred)),
         Socket =
             val({ErrRef, Server},
                 call(Server, {accept, ListenSocket, inet:timeout(Timer)})),
@@ -1490,10 +1490,10 @@ start_server(Domain, StartOpts, OpenOpts) ->
     end.
 
 %% Start for accept - have no socket yet
-start_server(ServerData, StartOpts, TsHandle, ListenerFd) ->
+start_server(ServerData, StartOpts, TsHandle, ListenerFd, LoopbackAddr, LoopbackProxyCred, LoopbackLocalApiCred) ->
     %% ?DBG([{server_data, ServerData}, {statr_opts, StartOpts}]),
     Owner = self(),
-    Arg = {prepare, ServerData, Owner, TsHandle, ListenerFd},
+    Arg = {prepare, ServerData, Owner, TsHandle, ListenerFd, LoopbackAddr, LoopbackProxyCred, LoopbackLocalApiCred},
     case gen_statem:start(?MODULE, Arg, StartOpts) of
         {ok, Server} ->
 	    %% ?DBG([{server, Server}]),
@@ -1614,7 +1614,7 @@ init({open, Domain, ExtraOpts, Owner}) ->
 	    %% ?DBG(['open failed', {reason, Reason}]),
 	    {stop, {shutdown, Reason}}
     end;
-init({prepare, D, Owner, TsHandle, ListenerFd}) ->
+init({prepare, D, Owner, TsHandle, ListenerFd, LoopbackAddr, LoopbackProxyCred, LoopbackLocalApiCred}) ->
     %% Accept
     %%
     %% ?DBG([{init, prepare}, {d, D}, {owner, Owner}]),
@@ -1624,7 +1624,10 @@ init({prepare, D, Owner, TsHandle, ListenerFd}) ->
            owner     = Owner,
            owner_mon = OwnerMon,
            ts_handle = TsHandle,
-           nif_listener_fd = ListenerFd},
+           nif_listener_fd = ListenerFd,
+           loopback_address = LoopbackAddr,
+           loopback_proxy_cred = LoopbackProxyCred,
+           loopback_local_api_cred = LoopbackLocalApiCred},
     {ok, accept, {P, maps:merge(D, server_vars())}};
 init(Arg) ->
     error_report([{badarg, {?MODULE, init, [Arg]}}]),
@@ -1991,14 +1994,15 @@ handle_event(
         %% case socket:listen(Socket, Backlog) of
         case 'Elixir.Libtailscale':listen(Ts, <<"tcp">>, <<":", (integer_to_binary(Port))/binary>>) of
             {ok, ListenerFd} ->
-                % Start loopback server after successful listen
+                %% Start loopback server after successful listen
                 {LoopbackAddr, ProxyCred, LocalApiCred} =
                     case 'Elixir.Libtailscale':loopback(Ts) of
                         {ok, {Addr, PCred, LACred}} ->
+                            %% ?DBG([loopback_started, Addr, PCred, LACred]),
                             {Addr, binary_to_list(PCred), binary_to_list(LACred)};
                         {error, _LoopbackError} ->
-                            % If loopback fails, continue without it but log the error
-                            % ?DBG({loopback_failed, _LoopbackError}),
+                            %% If loopback fails, continue without it but log the error
+                            %% ?DBG({loopback_failed, _LoopbackError}),
                             {undefined, undefined, undefined}
                     end,
                 {socket:open(ListenerFd),

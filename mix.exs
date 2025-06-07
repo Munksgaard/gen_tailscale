@@ -32,9 +32,8 @@ defmodule GenTailscale.MixProject do
 
   defp description do
     """
-    Functionality to serve TCP servers directly on your
-    [Tailscale](https://tailscale.com) network using
-    [libtailscale](https://github.com/tailscale/libtailscale/).
+    Functionality to serve TCP servers directly on your Tailscale network using
+    libtailscale.
     """
   end
 

@@ -1097,25 +1097,25 @@ split_tailscale_opts(Opts) ->
 set_tailscale_opts(Ts, []) ->
     Ts;
 set_tailscale_opts(Ts, [{ephemeral, true} | RestOpts]) ->
-    ok = 'Elixir.GenTailscale.LibTailscale':set_ephemeral(Ts, 1),
+    ok = 'Elixir.Libtailscale':set_ephemeral(Ts, 1),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{ephemeral, false} | RestOpts]) ->
-    ok = 'Elixir.GenTailscale.LibTailscale':set_ephemeral(Ts, 0),
+    ok = 'Elixir.Libtailscale':set_ephemeral(Ts, 0),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{hostname, Hostname} | RestOpts]) ->
-    ok = 'Elixir.GenTailscale.LibTailscale':set_hostname(Ts, Hostname),
+    ok = 'Elixir.Libtailscale':set_hostname(Ts, Hostname),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{dir, Dir} | RestOpts]) ->
-    ok = 'Elixir.GenTailscale.LibTailscale':set_dir(Ts, Dir),
+    ok = 'Elixir.Libtailscale':set_dir(Ts, Dir),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{authkey, Authkey} | RestOpts]) ->
-    ok = 'Elixir.GenTailscale.LibTailscale':set_authkey(Ts, Authkey),
+    ok = 'Elixir.Libtailscale':set_authkey(Ts, Authkey),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{control_url, ControlUrl} | RestOpts]) ->
-    ok = 'Elixir.GenTailscale.LibTailscale':set_control_url(Ts, ControlUrl),
+    ok = 'Elixir.Libtailscale':set_control_url(Ts, ControlUrl),
     set_tailscale_opts(Ts, RestOpts);
 set_tailscale_opts(Ts, [{logfd, Logfd} | RestOpts]) when is_integer(Logfd)->
-    ok = 'Elixir.GenTailscale.LibTailscale':set_logfd(Ts, Logfd),
+    ok = 'Elixir.Libtailscale':set_logfd(Ts, Logfd),
     set_tailscale_opts(Ts, RestOpts).
 
 %% No need to (at this point) do something fancy here,
@@ -1998,17 +1998,17 @@ handle_event(
     %% ?DBG({handle_event, call, _LISTEN, _State, Socket, Backlog}),
 
     %% Create a new Tailscale server object.
-    Ts = 'Elixir.GenTailscale.LibTailscale':new(),
+    Ts = 'Elixir.Libtailscale':new(),
 
     set_tailscale_opts(Ts, TailscaleOpts),
 
     {Result, PNew} =
         %% case socket:listen(Socket, Backlog) of
-        case 'Elixir.GenTailscale.LibTailscale':listen(Ts, <<"tcp">>, <<":", (integer_to_binary(Port))/binary>>) of
+        case 'Elixir.Libtailscale':listen(Ts, <<"tcp">>, <<":", (integer_to_binary(Port))/binary>>) of
             {ok, ListenerFd} ->
                 %% Start loopback server after successful listen
                 {LoopbackAddr, ProxyCred, LocalApiCred} =
-                    case 'Elixir.GenTailscale.LibTailscale':loopback(Ts) of
+                    case 'Elixir.Libtailscale':loopback(Ts) of
                         {ok, {Addr, PCred, LACred}} ->
                             %% ?DBG([loopback_started, Addr, PCred, LACred]),
                             {Addr, binary_to_list(PCred), binary_to_list(LACred)};
@@ -2181,7 +2181,7 @@ handle_event({call, From}, getremoteaddr, _State, {P, _D}) ->
     {keep_state_and_data,
      {reply,
       From,
-      'Elixir.GenTailscale.LibTailscale':getremoteaddr(
+      'Elixir.Libtailscale':getremoteaddr(
         P#params.ts_handle,
         P#params.nif_listener_fd,
         P#params.nif_conn_fd)}};

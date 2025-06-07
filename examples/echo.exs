@@ -3,7 +3,7 @@
 
 {:ok, sock} = :gen_tailscale.accept(lsock)
 
-dbg(:gen_tailscale_socket.getremoteaddr(sock))
+IO.puts("Accepted connection from: #{inspect(:gen_tailscale_socket.getremoteaddr(sock))}")
 
 {:ok, s} = :gen_tailscale.recv(sock, 0)
 :ok = :gen_tailscale.send(sock, s)

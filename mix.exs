@@ -11,6 +11,7 @@ defmodule GenTailscale.MixProject do
       elixir: "~> 1.18",
       make_cwd: "native",
       make_clean: ["clean"],
+      source_url: "https://github.com/Munksgaard/gen_tailscale",
       compilers: [:elixir_make] ++ Mix.compilers(),
       description: description(),
       package: package(),

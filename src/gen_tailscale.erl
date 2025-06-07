@@ -4,6 +4,7 @@
 %% SPDX-License-Identifier: Apache-2.0
 %%
 %% Copyright Ericsson AB 1997-2025. All Rights Reserved.
+%% Copyright Philip Munksgaard 2025. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -24,224 +25,22 @@
 -moduledoc """
 Interface to TCP/IP sockets over a [Tailscale](https://tailscale.com/) network.
 
-This module provides functions for communicating over TCP/IP
-protocol sockets.
+This module provides
+[`gen_tcp`](https://www.erlang.org/doc/apps/kernel/gen_tcp.html)-like
+functionality for accepting connections over a
+[Tailscale](https://tailscale.com/) network using
+[libtailscale](https://github.com/tailscale/libtailscale/).
 
-The following code fragment is a simple example of a client connecting to a
-server at port 5678, transferring a binary, and closing the connection:
-
-```erlang
-client() ->
-    SomeHostInNet = "localhost", % to make it runnable on one machine
-    {ok, Sock} = gen_tailscale:connect(SomeHostInNet, 5678,
-                                 [binary, {packet, 0}]),
-    ok = gen_tailscale:send(Sock, "Some Data"),
-    ok = gen_tailscale:close(Sock).
-```
-
-At the other end, a server is listening on port 5678, accepts the connection,
-and receives the binary:
-
-```erlang
-server() ->
-    {ok, LSock} = gen_tailscale:listen(5678, [binary, {packet, 0},
-                                        {active, false}]),
-    {ok, Sock} = gen_tailscale:accept(LSock),
-    {ok, Bin} = do_recv(Sock, []),
-    ok = gen_tailscale:close(Sock),
-    ok = gen_tailscale:close(LSock),
-    Bin.
-
-do_recv(Sock, Bs) ->
-    case gen_tailscale:recv(Sock, 0) of
-        {ok, B} ->
-            do_recv(Sock, [Bs, B]);
-        {error, closed} ->
-            {ok, list_to_binary(Bs)}
-    end.
-```
-
-For more examples, see section [Examples](#module-examples).
-
-> #### Note {: .info }
+> #### Warning {: .warning}
 >
-> Functions that create sockets can take an optional option;
-> `{inet_backend, Backend}` that, if specified, has to be the first option. This
-> selects the implementation backend towards the platform's socket API.
+> This is a rough proof-of-concept. It uses crudely modified versions of the
+> original `gen_tcp` and
+> [`gen_tcp_socket`](https://github.com/erlang/otp/blob/master/lib/kernel/src/gen_tcp_socket.erl)
+> modules to manage the tcp-sockets and should probably not be used for anything
+> important as is.
 >
-> This is a _temporary_ option that will be ignored in a future release.
->
-> The default is `Backend = inet` that selects the traditional `inet_drv.c`
-> driver. The other choice is `Backend = socket` that selects the new `m:socket`
-> module and its NIF implementation.
->
-> The system default can be changed when the node is started with the
-> application `kernel`'s configuration variable `inet_backend`.
->
-> For `gen_tailscale` with `inet_backend = socket` we have tried to be as "compatible"
-> as possible which has sometimes been impossible. Here is a list of cases when
-> the behaviour of inet-backend `inet` (default) and `socket` are different:
->
-> - [Non-blocking send](#non_blocking_send)
->
->   If a user calling [`gen_tailscale:send/2`](`send/2`) with `inet_backend = inet`,
->   tries to send more data than there is room for in the OS buffers, the "rest
->   data" is buffered by the inet driver (and later sent in the background). The
->   effect for the user is that the call is non-blocking.
->
->   This is _not_ the effect when `inet_backend = socket`, since there is no
->   buffering. Instead the user hangs either until all data has been sent or the
->   `send_timeout` timeout has been reached.
->
-> - `shutdown/2` may hide errors
->
->   The call does not involve the receive process state, and is done
->   right on the underlying socket.  On for example Linux, it is a known
->   misbehaviour that it skips some checks so doing shutdown on a
->   listen socket returns `ok` while the logical result should have been
->   `{error, enotconn}`.  The `inet_drv.c` driver did an extra check
->   and simulated the correct error, but with `Backend = socket`
->   it would introduce overhead to involve the receive process.
->
-> - The option [nodelay](`m:inet#option-nodelay`) is a TCP specific option that
->   is _not_ compatible with `domain = local`.
->
->   When using `inet_backend = socket`, trying to create a socket (via listen or
->   connect) with `domain = local` (for example with option \{ifaddr,
->   \{local,"/tmp/test"\}\}) _will fail_ with `{error, enotsup}`.
->
->   This does not actually work for `inet_backend = inet` either, but in that
->   case the error is simply _ignored_, which is a _bad_ idea. We have chosen to
->   _not_ ignore this error for `inet_backend = socket`.
->
-> - [Async shutdown write](#async_shutdown_write)
->
->   Calling [gen_tailscale:shutdown(Socket, write | read_write)](`shutdown/2`) on a
->   socket created with `inet_backend = socket` will take _immediate_ effect,
->   unlike for a socket created with `inet_backend = inet`.
->
->   See [async shutdown write](#async_shutdown_write) for more info.
->
-> - Windows require sockets (domain = `inet | inet6`) to be bound.
->
->   _Currently_ all sockets created on Windows with `inet_backend = socket` will
->   be bound. If the user does not provide an address, gen_tailscale will try to
->   'figure out' an address itself.
-
-## Examples
-
-The following example illustrates use of option `{active,once}` and multiple
-accepts by implementing a server as a number of worker processes doing accept on
-a single listening socket. Function `start/2` takes the number of worker
-processes and the port number on which to listen for incoming connections. If
-`LPort` is specified as `0`, an ephemeral port number is used, which is why the
-start function returns the actual port number allocated:
-
-```erlang
-start(Num,LPort) ->
-    case gen_tailscale:listen(LPort,[{active, false},{packet,2}]) of
-        {ok, ListenSock} ->
-            start_servers(Num,ListenSock),
-            {ok, Port} = inet:port(ListenSock),
-            Port;
-        {error,Reason} ->
-            {error,Reason}
-    end.
-
-start_servers(0,_) ->
-    ok;
-start_servers(Num,LS) ->
-    spawn(?MODULE,server,[LS]),
-    start_servers(Num-1,LS).
-
-server(LS) ->
-    case gen_tailscale:accept(LS) of
-        {ok,S} ->
-            loop(S),
-            server(LS);
-        Other ->
-            io:format("accept returned ~w - goodbye!~n",[Other]),
-            ok
-    end.
-
-loop(S) ->
-    inet:setopts(S,[{active,once}]),
-    receive
-        {tcp,S,Data} ->
-            Answer = process(Data), % Not implemented in this example
-            gen_tailscale:send(S,Answer),
-            loop(S);
-        {tcp_closed,S} ->
-            io:format("Socket ~w closed [~w]~n",[S,self()]),
-            ok
-    end.
-```
-
-Example of a simple client:
-
-```erlang
-client(PortNo,Message) ->
-    {ok,Sock} = gen_tailscale:connect("localhost",PortNo,[{active,false},
-                                                    {packet,2}]),
-    gen_tailscale:send(Sock,Message),
-    A = gen_tailscale:recv(Sock,0),
-    gen_tailscale:close(Sock),
-    A.
-```
-
-The `send` call does not accept a time-out option because time-outs on send is
-handled through socket option `send_timeout`. The behavior of a send operation
-with no receiver is mainly defined by the underlying TCP stack and the network
-infrastructure. To write code that handles a hanging receiver that can
-eventually cause the sender to hang on a `send` do like the following.
-
-Consider a process that receives data from a client process to be forwarded to a
-server on the network. The process is connected to the server through TCP/IP and
-does not get any acknowledge for each message it sends, but has to rely on the
-send time-out option to detect that the other end is unresponsive. Option
-`send_timeout` can be used when connecting:
-
-```erlang
-...
-{ok,Sock} = gen_tailscale:connect(HostAddress, Port,
-                            [{active,false},
-                             {send_timeout, 5000},
-                             {packet,2}]),
-                loop(Sock), % See below
-...
-```
-
-In the loop where requests are handled, send time-outs can now be detected:
-
-```erlang
-loop(Sock) ->
-    receive
-        {Client, send_data, Binary} ->
-            case gen_tailscale:send(Sock,[Binary]) of
-                {error, timeout} ->
-                    io:format("Send timeout, closing!~n",
-                              []),
-                    handle_send_timeout(), % Not implemented here
-                    Client ! {self(),{error_sending, timeout}},
-                    %% Usually, it's a good idea to give up in case of a
-                    %% send timeout, as you never know how much actually
-                    %% reached the server, maybe only a packet header?!
-                    gen_tailscale:close(Sock);
-                {error, OtherSendError} ->
-                    io:format("Some other error on socket (~p), closing",
-                              [OtherSendError]),
-                    Client ! {self(),{error_sending, OtherSendError}},
-                    gen_tailscale:close(Sock);
-                ok ->
-                    Client ! {self(), data_sent},
-                    loop(Sock)
-            end
-    end.
-```
-
-Usually it suffices to detect time-outs on receive, as most protocols include
-some sort of acknowledgment from the server, but if the protocol is strictly one
-way, option `send_timeout` comes in handy.
+> Most of the documentation in here is left-over from `gen_tcp` and cannot be
+> counted on to work as advertised.
 """.
 
 

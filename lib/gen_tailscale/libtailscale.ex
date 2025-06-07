@@ -1,4 +1,6 @@
 defmodule GenTailscale.LibTailscale do
+  @moduledoc false
+
   @on_load :init
 
   @appname :gen_tailscale

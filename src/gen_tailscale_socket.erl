@@ -21,7 +21,19 @@
 %%
 
 -module(gen_tailscale_socket).
--moduledoc false.
+-moduledoc """
+Low-level interface to the sockets generated from `m:gen_tailscale`.
+
+> #### Warning {: .warning}
+>
+> This is a rough proof-of-concept. It uses a crudely modified version of the
+> original [`gen_tcp_socket`](https://github.com/erlang/otp/blob/master/lib/kernel/src/gen_tcp_socket.erl)
+> module to manage the tcp-sockets and should probably not be used for anything
+> important as is.
+>
+> Most of the documentation in here is left-over from `gen_tcp_socket` and cannot be
+> counted on to work as advertised.
+""".
 -behaviour(gen_statem).
 
 -compile({no_auto_import, [monitor/1]}).
